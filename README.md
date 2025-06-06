@@ -13,14 +13,27 @@
 
 ## 安装依赖
 
-```bash
-pip install DrissionPage websockets
-```
+1. **创建并激活虚拟环境**
+   ```bash
+   python3 -m venv venv
+   # Linux/macOS
+   source venv/bin/activate
+   # Windows
+   # venv\Scripts\activate
+   ```
+
+2. **安装项目依赖**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
 ## 使用方法
 
-1. **运行脚本**
+1. **激活虚拟环境并运行脚本**
    ```bash
+   # 确保已在项目根目录并激活 venv
+   source venv/bin/activate  # Windows 使用 venv\Scripts\activate
+
    python 2048_auto_player.py
    ```
 
