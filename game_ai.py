@@ -5,7 +5,191 @@ import math
 import time
 import asyncio
 from typing import List, Tuple, Optional, Dict
+import numpy as np
+from numba import njit
+try:
+    import cupy as cp
+except Exception:  # cupy may not be installed
+    cp = None
 from config import *
+
+# --- 加速算法实现 -----------------------------------------------------------
+
+DIRECTION_MAP = {"left": 0, "right": 1, "up": 2, "down": 3}
+
+@njit
+def _merge_line_cpu(line):
+    non_zero = line[line != 0]
+    result = np.zeros(BOARD_SIZE, dtype=np.int64)
+    k = 0
+    i = 0
+    n = non_zero.size
+    while i < n:
+        if i < n - 1 and non_zero[i] == non_zero[i + 1]:
+            result[k] = non_zero[i] * 2
+            i += 2
+        else:
+            result[k] = non_zero[i]
+            i += 1
+        k += 1
+    return result
+
+@njit
+def _move_board_cpu(board, dir_idx):
+    result = board.copy()
+    if dir_idx == 0:  # left
+        for i in range(BOARD_SIZE):
+            result[i] = _merge_line_cpu(result[i])
+    elif dir_idx == 1:  # right
+        for i in range(BOARD_SIZE):
+            result[i] = _merge_line_cpu(result[i][::-1])[::-1]
+    elif dir_idx == 2:  # up
+        for j in range(BOARD_SIZE):
+            result[:, j] = _merge_line_cpu(result[:, j])
+    else:  # down
+        for j in range(BOARD_SIZE):
+            result[:, j] = _merge_line_cpu(result[::-1, j])[::-1]
+    return result
+
+@njit
+def _calculate_smoothness_cpu(board):
+    smooth = 0.0
+    for i in range(BOARD_SIZE):
+        for j in range(BOARD_SIZE):
+            val = board[i, j]
+            if val != 0:
+                if j < BOARD_SIZE - 1 and board[i, j + 1] != 0:
+                    smooth -= abs(math.log2(val) - math.log2(board[i, j + 1]))
+                if i < BOARD_SIZE - 1 and board[i + 1, j] != 0:
+                    smooth -= abs(math.log2(val) - math.log2(board[i + 1, j]))
+    return smooth
+
+@njit
+def _calculate_monotonicity_cpu(board):
+    row_m = 0.0
+    col_m = 0.0
+    for i in range(BOARD_SIZE):
+        current = -1
+        for j in range(BOARD_SIZE):
+            if board[i, j] != 0:
+                if current != -1:
+                    v1 = math.log2(board[i, current])
+                    v2 = math.log2(board[i, j])
+                    if v1 < v2:
+                        row_m += (v2 - v1) * 2
+                    else:
+                        row_m += v1 - v2
+                current = j
+    for j in range(BOARD_SIZE):
+        current = -1
+        for i in range(BOARD_SIZE):
+            if board[i, j] != 0:
+                if current != -1:
+                    v1 = math.log2(board[current, j])
+                    v2 = math.log2(board[i, j])
+                    if v1 < v2:
+                        col_m += (v2 - v1) * 2
+                    else:
+                        col_m += v1 - v2
+                current = i
+    return row_m + col_m
+
+def merge_line_cpu(line: List[int]) -> List[int]:
+    arr = np.array(line, dtype=np.int64)
+    return _merge_line_cpu(arr).tolist()
+
+def move_board_cpu(board: List[List[int]], direction: str) -> List[List[int]]:
+    arr = np.array(board, dtype=np.int64)
+    dir_idx = DIRECTION_MAP[direction]
+    return _move_board_cpu(arr, dir_idx).tolist()
+
+def calculate_smoothness_cpu(board: List[List[int]]) -> float:
+    arr = np.array(board, dtype=np.int64)
+    return float(_calculate_smoothness_cpu(arr))
+
+def calculate_monotonicity_cpu(board: List[List[int]]) -> float:
+    arr = np.array(board, dtype=np.int64)
+    return float(_calculate_monotonicity_cpu(arr))
+
+
+def merge_line_gpu_array(arr_line):
+    non_zero = arr_line[arr_line != 0]
+    result = cp.zeros(BOARD_SIZE, dtype=arr_line.dtype)
+    k = 0
+    i = 0
+    n = non_zero.size
+    while i < n:
+        if i < n - 1 and non_zero[i] == non_zero[i + 1]:
+            result[k] = non_zero[i] * 2
+            i += 2
+        else:
+            result[k] = non_zero[i]
+            i += 1
+        k += 1
+    return result
+
+def merge_line_gpu(line: List[int]) -> List[int]:
+    arr = cp.array(line)
+    return cp.asnumpy(merge_line_gpu_array(arr)).tolist()
+
+def move_board_gpu(board: List[List[int]], direction: str) -> List[List[int]]:
+    arr = cp.array(board)
+    if direction == "left":
+        for i in range(BOARD_SIZE):
+            arr[i] = merge_line_gpu_array(arr[i])
+    elif direction == "right":
+        for i in range(BOARD_SIZE):
+            arr[i] = cp.flip(merge_line_gpu_array(cp.flip(arr[i])))
+    elif direction == "up":
+        for j in range(BOARD_SIZE):
+            arr[:, j] = merge_line_gpu_array(arr[:, j])
+    elif direction == "down":
+        for j in range(BOARD_SIZE):
+            arr[:, j] = cp.flip(merge_line_gpu_array(cp.flip(arr[:, j])))
+    return cp.asnumpy(arr).tolist()
+
+def calculate_smoothness_gpu(board: List[List[int]]) -> float:
+    arr = cp.array(board, dtype=cp.int32)
+    smooth = 0.0
+    for i in range(BOARD_SIZE):
+        for j in range(BOARD_SIZE):
+            val = arr[i, j]
+            if val != 0:
+                if j < BOARD_SIZE - 1 and arr[i, j + 1] != 0:
+                    smooth -= float(cp.abs(cp.log2(val) - cp.log2(arr[i, j + 1])))
+                if i < BOARD_SIZE - 1 and arr[i + 1, j] != 0:
+                    smooth -= float(cp.abs(cp.log2(val) - cp.log2(arr[i + 1, j])))
+    return float(smooth)
+
+def calculate_monotonicity_gpu(board: List[List[int]]) -> float:
+    arr = cp.array(board, dtype=cp.int32)
+    row_m = 0.0
+    col_m = 0.0
+    for i in range(BOARD_SIZE):
+        current = -1
+        for j in range(BOARD_SIZE):
+            if arr[i, j] != 0:
+                if current != -1:
+                    v1 = cp.log2(arr[i, current])
+                    v2 = cp.log2(arr[i, j])
+                    if v1 < v2:
+                        row_m += float(v2 - v1) * 2
+                    else:
+                        row_m += float(v1 - v2)
+                current = j
+    for j in range(BOARD_SIZE):
+        current = -1
+        for i in range(BOARD_SIZE):
+            if arr[i, j] != 0:
+                if current != -1:
+                    v1 = cp.log2(arr[current, j])
+                    v2 = cp.log2(arr[i, j])
+                    if v1 < v2:
+                        col_m += float(v2 - v1) * 2
+                    else:
+                        col_m += float(v1 - v2)
+                current = i
+    return float(row_m + col_m)
 
 class Game2048AI:
     def __init__(self):
@@ -22,6 +206,18 @@ class Game2048AI:
         # 迭代深化相关
         self.time_limit = 0.1  # 100ms时间限制
         self.max_search_depth = 6
+
+        # 根据配置选择加速实现
+        if USE_GPU_ACCELERATION and cp is not None:
+            self.move_board = move_board_gpu
+            self.merge_line = merge_line_gpu
+            self.calculate_smoothness = calculate_smoothness_gpu
+            self.calculate_monotonicity = calculate_monotonicity_gpu
+        else:
+            self.move_board = move_board_cpu
+            self.merge_line = merge_line_cpu
+            self.calculate_smoothness = calculate_smoothness_cpu
+            self.calculate_monotonicity = calculate_monotonicity_cpu
         
         
 
