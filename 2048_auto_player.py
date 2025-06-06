@@ -619,6 +619,8 @@ class Game2048AutoPlayer:
         """开始自动游戏"""
         self.is_auto_playing = True
         self.logger.info("开始自动游戏")
+        if self.current_board and self.loop and not self.loop.is_closed():
+            asyncio.run_coroutine_threadsafe(self.make_ai_move(), self.loop)
     
     def stop_auto_play(self):
         """停止自动游戏"""
