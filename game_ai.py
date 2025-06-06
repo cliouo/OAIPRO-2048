@@ -213,6 +213,7 @@ class Game2048AI:
         max_tile = self.get_max_tile(board)
         positional_score = self.calculate_positional_score(board)
         merge_potential = self.calculate_merge_potential(board)
+        island_penalty = self.calculate_island_penalty(board)
         
         # 最大块在角落的奖励
         corner_bonus = 0
@@ -235,7 +236,8 @@ class Game2048AI:
             MERGE_POTENTIAL_WEIGHT * merge_potential +
             corner_bonus -  # 添加角落奖励
             trapped_penalty +  # 减去被困惩罚
-            empty_line_bonus  # 添加空行/空列奖励
+            empty_line_bonus -  # 添加空行/空列奖励
+            ISLAND_PENALTY_WEIGHT * island_penalty  # 孤岛惩罚
         )
 
         return score
@@ -468,3 +470,29 @@ class Game2048AI:
             if all(board[i][j] == 0 for i in range(BOARD_SIZE)):
                 bonus += 1000  # 空列奖励
         return bonus
+
+    def calculate_island_penalty(self, board: List[List[int]]) -> int:
+        """计算棋盘中孤立块的数量"""
+        visited = [[False] * BOARD_SIZE for _ in range(BOARD_SIZE)]
+        islands = 0
+
+        for i in range(BOARD_SIZE):
+            for j in range(BOARD_SIZE):
+                if board[i][j] != 0 and not visited[i][j]:
+                    islands += 1
+                    stack = [(i, j)]
+                    visited[i][j] = True
+                    while stack:
+                        x, y = stack.pop()
+                        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                            nx, ny = x + dx, y + dy
+                            if (
+                                0 <= nx < BOARD_SIZE
+                                and 0 <= ny < BOARD_SIZE
+                                and board[nx][ny] != 0
+                                and not visited[nx][ny]
+                            ):
+                                visited[nx][ny] = True
+                                stack.append((nx, ny))
+
+        return islands
