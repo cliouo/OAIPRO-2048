@@ -22,6 +22,10 @@ POSITION_WEIGHT = 1.0  # 位置权重
 MERGE_POTENTIAL_WEIGHT = 0.5  # 合并潜力权重
 ISLAND_PENALTY_WEIGHT = 1.0  # 孤岛惩罚权重
 MAX_TILE_DISTANCE_WEIGHT = 1.0  # 最大块距离角落的惩罚权重
+# 行合并缓存大小
+LINE_CACHE_SIZE = 65536
+# 边缘权重，用于鼓励在边缘保留较大数字
+EDGE_WEIGHT = 0.1
 
 # 是否启用GPU/Numba加速
 USE_GPU_ACCELERATION = False

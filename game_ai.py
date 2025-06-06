@@ -38,6 +38,18 @@ def merge_line_py(line: List[int]) -> List[int]:
     return merged
 
 
+from functools import lru_cache
+
+@lru_cache(maxsize=LINE_CACHE_SIZE)
+def _merge_line_cached(line_tuple: tuple) -> tuple:
+    """缓存的行合并实现"""
+    return tuple(merge_line_py(list(line_tuple)))
+
+def merge_line_cached(line: List[int]) -> List[int]:
+    """合并一行并缓存结果"""
+    return list(_merge_line_cached(tuple(line)))
+
+
 if njit is not None:
     merge_line_numba = njit(merge_line_py)
 else:
@@ -341,7 +353,7 @@ class Game2048AI:
             self.calculate_smoothness_impl = calculate_smoothness_numba
             self.calculate_monotonicity_impl = calculate_monotonicity_numba
         else:
-            self.merge_line_impl = merge_line_py
+            self.merge_line_impl = merge_line_cached
             self.move_board_impl = move_board_py
             self.calculate_smoothness_impl = calculate_smoothness_py
             self.calculate_monotonicity_impl = calculate_monotonicity_py
@@ -482,6 +494,7 @@ class Game2048AI:
         max_tile = self.get_max_tile(board)
         positional_score = self.calculate_positional_score(board)
         merge_potential = self.calculate_merge_potential(board)
+        edge_score = self.calculate_edge_score(board)
         island_penalty = self.calculate_island_penalty(board)
         max_tile_distance = self.calculate_max_tile_distance(board)
         
@@ -504,6 +517,7 @@ class Game2048AI:
             MAX_WEIGHT * (math.log2(max_tile) if max_tile > 0 else 0) +
             POSITION_WEIGHT * positional_score +
             MERGE_POTENTIAL_WEIGHT * merge_potential +
+            EDGE_WEIGHT * edge_score +
             corner_bonus -  # 添加角落奖励
             trapped_penalty +  # 减去被困惩罚
             empty_line_bonus -  # 添加空行/空列奖励
@@ -535,6 +549,16 @@ class Game2048AI:
                     if i < BOARD_SIZE - 1 and board[i][j] == board[i + 1][j]:
                         potential += 1
         return potential
+
+    def calculate_edge_score(self, board: List[List[int]]) -> float:
+        """计算边缘权重得分"""
+        score = 0
+        last = BOARD_SIZE - 1
+        for i in range(BOARD_SIZE):
+            for j in range(BOARD_SIZE):
+                if i == 0 or j == 0 or i == last or j == last:
+                    score += board[i][j]
+        return score
     
     def calculate_smoothness(self, board: List[List[int]]) -> float:
         """计算平滑度"""
