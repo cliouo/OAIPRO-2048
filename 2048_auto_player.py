@@ -20,6 +20,7 @@ class Game2048AutoPlayer:
         self.game_over = False
         self.victory = False
         self.awaiting_response = False
+        self.last_board_hash = None
         
         # 设置日志
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -403,11 +404,16 @@ class Game2048AutoPlayer:
         try:
             if not self.current_board or self.awaiting_response:
                 return
-            
+
             # 使用AI计算最佳移动
             best_move = await self.ai.get_best_move(self.current_board, self.current_score)
-            
+
             if best_move:
+                predicted = self.ai.move_board(self.current_board, best_move)
+                if predicted == self.current_board:
+                    self.logger.info("AI选择的方向无效，重新计算")
+                    return
+
                 self.logger.info(f"AI选择移动方向: {best_move}")
 
                 success = False
@@ -453,11 +459,17 @@ class Game2048AutoPlayer:
     def on_game_state_received(self, game_data: Optional[Dict[str, Any]]):
         """处理接收到的游戏状态或错误"""
         try:
+            board_changed = False
             if game_data:
                 self.current_board = game_data.get("board", [])
                 self.current_score = game_data.get("score", 0)
                 self.game_over = game_data.get("game_over", False)
                 self.victory = game_data.get("victory", False)
+
+                board_hash = tuple(tuple(row) for row in self.current_board)
+                if board_hash != self.last_board_hash:
+                    self.last_board_hash = board_hash
+                    board_changed = True
 
             # 更新页面状态显示
             self.update_page_status()
@@ -477,7 +489,7 @@ class Game2048AutoPlayer:
                 return
 
             # 如果正在自动游戏且游戏未结束，计算下一步
-            if self.is_auto_playing:
+            if self.is_auto_playing and (board_changed or game_data is None):
                 asyncio.create_task(self.make_ai_move())
 
         except Exception as e:

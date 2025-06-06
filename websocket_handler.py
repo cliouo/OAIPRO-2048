@@ -122,7 +122,9 @@ class WebSocketHandler:
 
                     # 获取游戏状态，添加异常处理
                     try:
-                        game_state = self.page.run_js("return window.gameState;")
+                        game_state = self.page.run_js(
+                            "var s = window.gameState; window.gameState = null; return s;"
+                        )
                         if game_state:
                             await self.handle_message({"type": "game_state", "data": game_state})
                     except Exception as state_error:
