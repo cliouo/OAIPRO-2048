@@ -11,6 +11,7 @@
 - 📊 实时状态显示：显示当前分数和连接状态
 - 🎯 用户友好界面：注入控制按钮到游戏页面
 - ⏱️ 顺序执行：验证移动有效并等待棋盘更新后再行动
+- ⚡ 可选Numba/CuPy加速：根据配置提升搜索速度
 
 ## 安装依赖
 
@@ -27,6 +28,15 @@
    ```bash
    pip install -r requirements.txt
    ```
+
+3. **(可选) 启用加速**
+   - 安装 `numba` 或 `cupy` 提升搜索速度
+   ```bash
+   pip install numba      # CPU 加速
+   # 或
+   pip install cupy-cuda11x  # GPU 加速, 依据实际CUDA版本选择
+   ```
+   - 在 `config.py` 中将 `USE_GPU_ACCELERATION = True` 即可启用
 
 ## 使用方法
 

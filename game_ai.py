@@ -7,6 +7,312 @@ import asyncio
 from typing import List, Tuple, Optional, Dict
 from config import *
 
+try:
+    from numba import njit
+except ImportError:  # 如果未安装numba, 提供占位装饰器
+    def njit(func=None, **kwargs):
+        if func is None:
+            return lambda f: f
+        return func
+
+try:
+    import cupy as cp
+except ImportError:
+    cp = None
+
+
+def merge_line_py(line: List[int]) -> List[int]:
+    """纯Python实现的合并一行"""
+    non_zero = [x for x in line if x != 0]
+    merged = []
+    i = 0
+    while i < len(non_zero):
+        if i < len(non_zero) - 1 and non_zero[i] == non_zero[i + 1]:
+            merged.append(non_zero[i] * 2)
+            i += 2
+        else:
+            merged.append(non_zero[i])
+            i += 1
+    while len(merged) < BOARD_SIZE:
+        merged.append(0)
+    return merged
+
+
+if njit is not None:
+    merge_line_numba = njit(merge_line_py)
+else:
+    merge_line_numba = merge_line_py
+
+
+def merge_line_gpu(line: List[int]) -> List[int]:
+    """使用CuPy的GPU实现合并一行"""
+    if cp is None:
+        return merge_line_py(line)
+    arr = cp.array(line)
+    non_zero = arr[arr != 0]
+    merged = []
+    i = 0
+    length = int(non_zero.shape[0])
+    while i < length:
+        if i < length - 1 and int(non_zero[i]) == int(non_zero[i + 1]):
+            merged.append(int(non_zero[i] * 2))
+            i += 2
+        else:
+            merged.append(int(non_zero[i]))
+            i += 1
+    while len(merged) < BOARD_SIZE:
+        merged.append(0)
+    return merged
+
+
+def calculate_smoothness_py(board: List[List[int]]) -> float:
+    smoothness = 0.0
+    for i in range(BOARD_SIZE):
+        for j in range(BOARD_SIZE):
+            if board[i][j] != 0:
+                if j < BOARD_SIZE - 1 and board[i][j + 1] != 0:
+                    smoothness -= abs(math.log2(board[i][j]) - math.log2(board[i][j + 1]))
+                if i < BOARD_SIZE - 1 and board[i + 1][j] != 0:
+                    smoothness -= abs(math.log2(board[i][j]) - math.log2(board[i + 1][j]))
+    return smoothness
+
+
+if njit is not None:
+    calculate_smoothness_numba = njit(calculate_smoothness_py)
+else:
+    calculate_smoothness_numba = calculate_smoothness_py
+
+
+def calculate_smoothness_gpu(board: List[List[int]]) -> float:
+    if cp is None:
+        return calculate_smoothness_py(board)
+    arr = cp.array(board)
+    smoothness = cp.float64(0)
+    for i in range(BOARD_SIZE):
+        for j in range(BOARD_SIZE):
+            if arr[i, j] != 0:
+                if j < BOARD_SIZE - 1 and arr[i, j + 1] != 0:
+                    smoothness -= cp.abs(cp.log2(arr[i, j]) - cp.log2(arr[i, j + 1]))
+                if i < BOARD_SIZE - 1 and arr[i + 1, j] != 0:
+                    smoothness -= cp.abs(cp.log2(arr[i, j]) - cp.log2(arr[i + 1, j]))
+    return float(smoothness.get()) if hasattr(smoothness, 'get') else float(smoothness)
+
+
+def calculate_monotonicity_py(board: List[List[int]]) -> float:
+    row_monotonicity = 0.0
+    col_monotonicity = 0.0
+    for i in range(BOARD_SIZE):
+        current = 0
+        while current < BOARD_SIZE and board[i][current] == 0:
+            current += 1
+        if current >= BOARD_SIZE:
+            continue
+        next_pos = current + 1
+        while next_pos < BOARD_SIZE:
+            while next_pos < BOARD_SIZE and board[i][next_pos] == 0:
+                next_pos += 1
+            if next_pos >= BOARD_SIZE:
+                break
+            current_value = math.log2(board[i][current])
+            next_value = math.log2(board[i][next_pos])
+            if current_value < next_value:
+                row_monotonicity += (next_value - current_value) * 2
+            else:
+                row_monotonicity += (current_value - next_value)
+            current = next_pos
+            next_pos += 1
+
+    for j in range(BOARD_SIZE):
+        current = 0
+        while current < BOARD_SIZE and board[current][j] == 0:
+            current += 1
+        if current >= BOARD_SIZE:
+            continue
+        next_pos = current + 1
+        while next_pos < BOARD_SIZE:
+            while next_pos < BOARD_SIZE and board[next_pos][j] == 0:
+                next_pos += 1
+            if next_pos >= BOARD_SIZE:
+                break
+            current_value = math.log2(board[current][j])
+            next_value = math.log2(board[next_pos][j])
+            if current_value < next_value:
+                col_monotonicity += (next_value - current_value) * 2
+            else:
+                col_monotonicity += (current_value - next_value)
+            current = next_pos
+            next_pos += 1
+    return row_monotonicity + col_monotonicity
+
+
+if njit is not None:
+    calculate_monotonicity_numba = njit(calculate_monotonicity_py)
+else:
+    calculate_monotonicity_numba = calculate_monotonicity_py
+
+
+def calculate_monotonicity_gpu(board: List[List[int]]) -> float:
+    if cp is None:
+        return calculate_monotonicity_py(board)
+    arr = cp.array(board)
+    row_mono = cp.float64(0)
+    col_mono = cp.float64(0)
+
+    for i in range(BOARD_SIZE):
+        current = 0
+        while current < BOARD_SIZE and arr[i, current] == 0:
+            current += 1
+        if current >= BOARD_SIZE:
+            continue
+        next_pos = current + 1
+        while next_pos < BOARD_SIZE:
+            while next_pos < BOARD_SIZE and arr[i, next_pos] == 0:
+                next_pos += 1
+            if next_pos >= BOARD_SIZE:
+                break
+            current_value = cp.log2(arr[i, current])
+            next_value = cp.log2(arr[i, next_pos])
+            if current_value < next_value:
+                row_mono += (next_value - current_value) * 2
+            else:
+                row_mono += (current_value - next_value)
+            current = next_pos
+            next_pos += 1
+
+    for j in range(BOARD_SIZE):
+        current = 0
+        while current < BOARD_SIZE and arr[current, j] == 0:
+            current += 1
+        if current >= BOARD_SIZE:
+            continue
+        next_pos = current + 1
+        while next_pos < BOARD_SIZE:
+            while next_pos < BOARD_SIZE and arr[next_pos, j] == 0:
+                next_pos += 1
+            if next_pos >= BOARD_SIZE:
+                break
+            current_value = cp.log2(arr[current, j])
+            next_value = cp.log2(arr[next_pos, j])
+            if current_value < next_value:
+                col_mono += (next_value - current_value) * 2
+            else:
+                col_mono += (current_value - next_value)
+            current = next_pos
+            next_pos += 1
+
+    total = row_mono + col_mono
+    return float(total.get()) if hasattr(total, 'get') else float(total)
+
+
+def move_left_py(board: List[List[int]]) -> List[List[int]]:
+    for i in range(BOARD_SIZE):
+        board[i] = merge_line_py(board[i])
+    return board
+
+
+def move_right_py(board: List[List[int]]) -> List[List[int]]:
+    for i in range(BOARD_SIZE):
+        board[i] = merge_line_py(board[i][::-1])[::-1]
+    return board
+
+
+def move_up_py(board: List[List[int]]) -> List[List[int]]:
+    for j in range(BOARD_SIZE):
+        column = [board[i][j] for i in range(BOARD_SIZE)]
+        merged = merge_line_py(column)
+        for i in range(BOARD_SIZE):
+            board[i][j] = merged[i]
+    return board
+
+
+def move_down_py(board: List[List[int]]) -> List[List[int]]:
+    for j in range(BOARD_SIZE):
+        column = [board[i][j] for i in range(BOARD_SIZE)]
+        merged = merge_line_py(column[::-1])[::-1]
+        for i in range(BOARD_SIZE):
+            board[i][j] = merged[i]
+    return board
+
+
+def move_board_py(board: List[List[int]], direction: str) -> List[List[int]]:
+    new_board = copy.deepcopy(board)
+    if direction == "left":
+        new_board = move_left_py(new_board)
+    elif direction == "right":
+        new_board = move_right_py(new_board)
+    elif direction == "up":
+        new_board = move_up_py(new_board)
+    elif direction == "down":
+        new_board = move_down_py(new_board)
+    return new_board
+
+
+if njit is not None:
+    move_board_numba = njit(move_board_py)
+else:
+    move_board_numba = move_board_py
+
+
+def move_left_gpu(board: List[List[int]]) -> List[List[int]]:
+    if cp is None:
+        return move_left_py(board)
+    arr = cp.array(board)
+    result = cp.zeros_like(arr)
+    for i in range(BOARD_SIZE):
+        result[i] = cp.array(merge_line_gpu(cp.asnumpy(arr[i]).tolist()))
+    return cp.asnumpy(result).tolist()
+
+
+def move_right_gpu(board: List[List[int]]) -> List[List[int]]:
+    if cp is None:
+        return move_right_py(board)
+    arr = cp.array(board)
+    result = cp.zeros_like(arr)
+    for i in range(BOARD_SIZE):
+        reversed_row = cp.asnumpy(arr[i][::-1]).tolist()
+        merged = merge_line_gpu(reversed_row)[::-1]
+        result[i] = cp.array(merged)
+    return cp.asnumpy(result).tolist()
+
+
+def move_up_gpu(board: List[List[int]]) -> List[List[int]]:
+    if cp is None:
+        return move_up_py(board)
+    arr = cp.array(board)
+    result = cp.zeros_like(arr)
+    for j in range(BOARD_SIZE):
+        column = cp.asnumpy(arr[:, j]).tolist()
+        merged = merge_line_gpu(column)
+        result[:, j] = cp.array(merged)
+    return cp.asnumpy(result).tolist()
+
+
+def move_down_gpu(board: List[List[int]]) -> List[List[int]]:
+    if cp is None:
+        return move_down_py(board)
+    arr = cp.array(board)
+    result = cp.zeros_like(arr)
+    for j in range(BOARD_SIZE):
+        column = cp.asnumpy(arr[:, j][::-1]).tolist()
+        merged = merge_line_gpu(column)[::-1]
+        result[:, j] = cp.array(merged)
+    return cp.asnumpy(result).tolist()
+
+
+def move_board_gpu(board: List[List[int]], direction: str) -> List[List[int]]:
+    new_board = copy.deepcopy(board)
+    if direction == "left":
+        new_board = move_left_gpu(new_board)
+    elif direction == "right":
+        new_board = move_right_gpu(new_board)
+    elif direction == "up":
+        new_board = move_up_gpu(new_board)
+    elif direction == "down":
+        new_board = move_down_gpu(new_board)
+    return new_board
+
+
+
 class Game2048AI:
     def __init__(self):
         self.directions = DIRECTIONS
@@ -22,6 +328,23 @@ class Game2048AI:
         # 迭代深化相关
         self.time_limit = 0.1  # 100ms时间限制
         self.max_search_depth = 6
+
+        # 根据配置选择普通实现或加速实现
+        if USE_GPU_ACCELERATION and cp is not None:
+            self.merge_line_impl = merge_line_gpu
+            self.move_board_impl = move_board_gpu
+            self.calculate_smoothness_impl = calculate_smoothness_gpu
+            self.calculate_monotonicity_impl = calculate_monotonicity_gpu
+        elif USE_GPU_ACCELERATION and njit is not None:
+            self.merge_line_impl = merge_line_numba
+            self.move_board_impl = move_board_numba
+            self.calculate_smoothness_impl = calculate_smoothness_numba
+            self.calculate_monotonicity_impl = calculate_monotonicity_numba
+        else:
+            self.merge_line_impl = merge_line_py
+            self.move_board_impl = move_board_py
+            self.calculate_smoothness_impl = calculate_smoothness_py
+            self.calculate_monotonicity_impl = calculate_monotonicity_py
         
         
 
@@ -215,81 +538,11 @@ class Game2048AI:
     
     def calculate_smoothness(self, board: List[List[int]]) -> float:
         """计算平滑度"""
-        smoothness = 0
-        for i in range(BOARD_SIZE):
-            for j in range(BOARD_SIZE):
-                if board[i][j] != 0:
-                    # 检查右边
-                    if j < BOARD_SIZE - 1 and board[i][j + 1] != 0:
-                        smoothness -= abs(math.log2(board[i][j]) - math.log2(board[i][j + 1]))
-                    # 检查下边
-                    if i < BOARD_SIZE - 1 and board[i + 1][j] != 0:
-                        smoothness -= abs(math.log2(board[i][j]) - math.log2(board[i + 1][j]))
-        return smoothness
+        return self.calculate_smoothness_impl(board)
     
     def calculate_monotonicity(self, board: List[List[int]]) -> float:
         """计算单调性 - 严格遵循左上角策略"""
-        # 只计算从左到右递减和从上到下递减的单调性
-        row_monotonicity = 0
-        col_monotonicity = 0
-
-        # 检查行的单调性（从左到右递减）
-        for i in range(BOARD_SIZE):
-            current = 0
-            while current < BOARD_SIZE and board[i][current] == 0:
-                current += 1
-
-            if current >= BOARD_SIZE:
-                continue
-
-            next_pos = current + 1
-            while next_pos < BOARD_SIZE:
-                while next_pos < BOARD_SIZE and board[i][next_pos] == 0:
-                    next_pos += 1
-
-                if next_pos >= BOARD_SIZE:
-                    break
-
-                current_value = math.log2(board[i][current])
-                next_value = math.log2(board[i][next_pos])
-
-                if current_value < next_value:  # 惩罚递增的情况
-                    row_monotonicity += (next_value - current_value) * 2
-                else:  # 奖励递减的情况
-                    row_monotonicity += (current_value - next_value)
-
-                current = next_pos
-                next_pos += 1
-
-        # 检查列的单调性（从上到下递减）
-        for j in range(BOARD_SIZE):
-            current = 0
-            while current < BOARD_SIZE and board[current][j] == 0:
-                current += 1
-
-            if current >= BOARD_SIZE:
-                continue
-
-            next_pos = current + 1
-            while next_pos < BOARD_SIZE:
-                while next_pos < BOARD_SIZE and board[next_pos][j] == 0:
-                    next_pos += 1
-
-                if next_pos >= BOARD_SIZE:
-                    break
-
-                current_value = math.log2(board[current][j])
-                next_value = math.log2(board[next_pos][j])
-
-                if current_value < next_value:  # 惩罚递增的情况
-                    col_monotonicity += (next_value - current_value) * 2
-                else:  # 奖励递减的情况
-                    col_monotonicity += (current_value - next_value)
-
-                current = next_pos
-                next_pos += 1
-
-        return row_monotonicity + col_monotonicity
+        return self.calculate_monotonicity_impl(board)
     
     def get_max_tile(self, board: List[List[int]]) -> int:
         """获取最大数字"""
@@ -313,71 +566,28 @@ class Game2048AI:
         return [list(row) for row in zip(*board)][::-1]
     
     def move_board(self, board: List[List[int]], direction: str) -> List[List[int]]:
-        """模拟移动棋盘"""
-        new_board = copy.deepcopy(board)
-        
-        if direction == "left":
-            new_board = self.move_left(new_board)
-        elif direction == "right":
-            new_board = self.move_right(new_board)
-        elif direction == "up":
-            new_board = self.move_up(new_board)
-        elif direction == "down":
-            new_board = self.move_down(new_board)
-        
-        return new_board
+        """模拟移动棋盘 - 调用选定的实现"""
+        return self.move_board_impl(board, direction)
     
     def move_left(self, board: List[List[int]]) -> List[List[int]]:
         """向左移动"""
-        for i in range(BOARD_SIZE):
-            board[i] = self.merge_line(board[i])
-        return board
+        return self.move_board_impl(board, "left")
     
     def move_right(self, board: List[List[int]]) -> List[List[int]]:
         """向右移动"""
-        for i in range(BOARD_SIZE):
-            board[i] = self.merge_line(board[i][::-1])[::-1]
-        return board
+        return self.move_board_impl(board, "right")
     
     def move_up(self, board: List[List[int]]) -> List[List[int]]:
         """向上移动"""
-        for j in range(BOARD_SIZE):
-            column = [board[i][j] for i in range(BOARD_SIZE)]
-            merged_column = self.merge_line(column)
-            for i in range(BOARD_SIZE):
-                board[i][j] = merged_column[i]
-        return board
+        return self.move_board_impl(board, "up")
     
     def move_down(self, board: List[List[int]]) -> List[List[int]]:
         """向下移动"""
-        for j in range(BOARD_SIZE):
-            column = [board[i][j] for i in range(BOARD_SIZE)]
-            merged_column = self.merge_line(column[::-1])[::-1]
-            for i in range(BOARD_SIZE):
-                board[i][j] = merged_column[i]
-        return board
+        return self.move_board_impl(board, "down")
     
     def merge_line(self, line: List[int]) -> List[int]:
-        """合并一行"""
-        # 移除零
-        non_zero = [x for x in line if x != 0]
-        
-        # 合并相同数字
-        merged = []
-        i = 0
-        while i < len(non_zero):
-            if i < len(non_zero) - 1 and non_zero[i] == non_zero[i + 1]:
-                merged.append(non_zero[i] * 2)
-                i += 2
-            else:
-                merged.append(non_zero[i])
-                i += 1
-        
-        # 补零
-        while len(merged) < BOARD_SIZE:
-            merged.append(0)
-        
-        return merged
+        """合并一行 - 调用选定的实现"""
+        return self.merge_line_impl(line)
     
     def is_max_tile_in_corner(self, board: List[List[int]]) -> bool:
         max_tile = self.get_max_tile(board)
