@@ -29,3 +29,6 @@ RECONNECT_DELAY = 5  # WebSocket重连延迟
 # 浏览器设置
 BROWSER_HEADLESS = False  # 是否无头模式
 BROWSER_TIMEOUT = 30  # 页面加载超时时间
+
+# GPU 加速开关
+USE_GPU_ACCELERATION = False

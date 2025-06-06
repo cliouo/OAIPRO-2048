@@ -27,6 +27,12 @@
    pip install -r requirements.txt
    ```
 
+3. **(可选) 安装加速库**
+   - CPU 加速：`pip install numba`
+   - GPU 加速：根据CUDA版本安装 `cupy`，如 `pip install cupy-cuda11x`
+   
+   安装后可在 `config.py` 中将 `USE_GPU_ACCELERATION` 设置为 `True` 以启用 GPU 加速。
+
 ## 使用方法
 
 1. **激活虚拟环境并运行脚本**
