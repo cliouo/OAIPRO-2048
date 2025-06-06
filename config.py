@@ -20,6 +20,8 @@ EMPTY_WEIGHT = 2.7
 MAX_WEIGHT = 1.0
 POSITION_WEIGHT = 1.0  # 位置权重
 MERGE_POTENTIAL_WEIGHT = 0.5  # 合并潜力权重
+ISLAND_PENALTY_WEIGHT = 1.0  # 孤岛惩罚权重
+MAX_TILE_DISTANCE_WEIGHT = 1.0  # 最大块距离角落的惩罚权重
 
 # 延迟设置（秒）
 MOVE_DELAY = 0.5  # 每次移动之间的延迟

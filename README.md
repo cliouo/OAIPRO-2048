@@ -13,14 +13,27 @@
 
 ## 安装依赖
 
-```bash
-pip install DrissionPage websockets
-```
+1. **创建并激活虚拟环境**
+   ```bash
+   python3 -m venv venv
+   # Linux/macOS
+   source venv/bin/activate
+   # Windows
+   # venv\Scripts\activate
+   ```
+
+2. **安装项目依赖**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
 ## 使用方法
 
-1. **运行脚本**
+1. **激活虚拟环境并运行脚本**
    ```bash
+   # 确保已在项目根目录并激活 venv
+   source venv/bin/activate  # Windows 使用 venv\Scripts\activate
+
    python 2048_auto_player.py
    ```
 
@@ -56,6 +69,8 @@ pip install DrissionPage websockets
 2. **平滑度**：相邻格子数值差异最小化
 3. **单调性**：保持数值的单调递增/递减排列
 4. **最大值权重**：优先产生更大的数字
+5. **孤岛惩罚**：减少分散的单个方块
+6. **角落距离惩罚**：鼓励最大数字保持在角落
 
 ## 技术架构
 

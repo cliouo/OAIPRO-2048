@@ -6,7 +6,6 @@ import time
 import asyncio
 from typing import List, Tuple, Optional, Dict
 from config import *
-from openai_helper import OpenAIHelper
 
 class Game2048AI:
     def __init__(self):
@@ -24,50 +23,10 @@ class Game2048AI:
         self.time_limit = 0.1  # 100ms时间限制
         self.max_search_depth = 6
         
-        # OpenAI助手
-        self.ai_helper = OpenAIHelper()
         
-        # AI调用控制
-        self.last_ai_call_time = 0
-        self.ai_call_interval = 10  # 每10秒调用一次AI
-        self.consecutive_same_moves = 0
-        self.last_move = None
-        self.score_threshold = 1000  # 分数阈值，超过后增加AI调用频率
-        
-    def should_call_ai(self, board: List[List[int]], current_score: int) -> bool:
-        """判断是否应该调用AI"""
-        current_time = time.time()
-        
-        # 1. 定时调用：每10秒调用一次
-        if current_time - self.last_ai_call_time >= self.ai_call_interval:
-            return True
-            
-        # 2. 连续相同移动超过3次
-        if self.consecutive_same_moves >= 3:
-            return True
-            
-        # 3. 分数超过阈值后，每5秒调用一次
-        if current_score > self.score_threshold and current_time - self.last_ai_call_time >= 5:
-            return True
-            
-        # 4. 接近终局或出现大数字
-        empty_cells = len(self.get_empty_cells(board))
-        max_tile = self.get_max_tile(board)
-        if empty_cells <= 4 or max_tile >= 2048:
-            return True
-            
-        return False
-        
-    def update_move_stats(self, move: str):
-        """更新移动统计信息"""
-        if move == self.last_move:
-            self.consecutive_same_moves += 1
-        else:
-            self.consecutive_same_moves = 0
-        self.last_move = move
 
     async def get_best_move(self, board: List[List[int]], current_score: int = 0) -> str:
-        """获取最佳移动方向 - 使用动态迭代深化搜索和AI辅助"""
+        """获取最佳移动方向 - 仅使用本地期望最大化搜索"""
         best_score = -float('inf')
         best_move = None
         start_time = time.time()
@@ -92,18 +51,7 @@ class Game2048AI:
         else:
             self.max_search_depth = 6
 
-        # 检查是否需要调用AI
-        if self.should_call_ai(board, current_score):
-            print("🤖 调用AI辅助决策...")
-            try:
-                ai_move = await self.ai_helper.get_ai_move(board)
-                if ai_move:
-                    print(f"🤖 AI建议移动: {ai_move}")
-                    self.last_ai_call_time = time.time()
-                    self.update_move_stats(ai_move)
-                    return ai_move
-            except Exception as e:
-                print(f"⚠️ AI调用失败: {e}")
+        # 仅使用本地计算的期望最大化搜索
 
         # 迭代深化：从深度2开始，逐步增加
         for depth in range(2, self.max_search_depth + 1):
@@ -129,20 +77,8 @@ class Game2048AI:
                 best_score = current_best_score
                 best_move = current_best_move
 
-        # 如果所有方向都会死，尝试获取AI建议
+        # 如果所有方向都会死，随机选择一个能移动的方向
         if best_move is None:
-            print("⚠️ 常规策略无法找到好的移动，调用AI...")
-            try:
-                ai_move = await self.ai_helper.get_ai_move(board)
-                if ai_move:
-                    print(f"🤖 AI建议移动: {ai_move}")
-                    self.last_ai_call_time = time.time()
-                    self.update_move_stats(ai_move)
-                    return ai_move
-            except Exception as e:
-                print(f"⚠️ AI调用失败: {e}")
-            
-            # 如果AI也没有建议，随便选一个能动的
             valid_moves = [d for d in self.directions if self.move_board(board, d) != board]
             best_move = random.choice(valid_moves) if valid_moves else None
 
@@ -150,8 +86,6 @@ class Game2048AI:
         if len(self.transposition_table) > 10000:
             self.transposition_table.clear()
 
-        if best_move:
-            self.update_move_stats(best_move)
         return best_move
     
     def expectimax(self, board: List[List[int]], depth: int, is_player_turn: bool) -> float:
@@ -213,6 +147,8 @@ class Game2048AI:
         max_tile = self.get_max_tile(board)
         positional_score = self.calculate_positional_score(board)
         merge_potential = self.calculate_merge_potential(board)
+        island_penalty = self.calculate_island_penalty(board)
+        max_tile_distance = self.calculate_max_tile_distance(board)
         
         # 最大块在角落的奖励
         corner_bonus = 0
@@ -235,7 +171,9 @@ class Game2048AI:
             MERGE_POTENTIAL_WEIGHT * merge_potential +
             corner_bonus -  # 添加角落奖励
             trapped_penalty +  # 减去被困惩罚
-            empty_line_bonus  # 添加空行/空列奖励
+            empty_line_bonus -  # 添加空行/空列奖励
+            ISLAND_PENALTY_WEIGHT * island_penalty -  # 孤岛惩罚
+            MAX_TILE_DISTANCE_WEIGHT * max_tile_distance  # 最大块距离角落
         )
 
         return score
@@ -468,3 +406,51 @@ class Game2048AI:
             if all(board[i][j] == 0 for i in range(BOARD_SIZE)):
                 bonus += 1000  # 空列奖励
         return bonus
+
+    def calculate_island_penalty(self, board: List[List[int]]) -> int:
+        """计算棋盘中孤立块的数量"""
+        visited = [[False] * BOARD_SIZE for _ in range(BOARD_SIZE)]
+        islands = 0
+
+        for i in range(BOARD_SIZE):
+            for j in range(BOARD_SIZE):
+                if board[i][j] != 0 and not visited[i][j]:
+                    islands += 1
+                    stack = [(i, j)]
+                    visited[i][j] = True
+                    while stack:
+                        x, y = stack.pop()
+                        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                            nx, ny = x + dx, y + dy
+                            if (
+                                0 <= nx < BOARD_SIZE
+                                and 0 <= ny < BOARD_SIZE
+                                and board[nx][ny] != 0
+                                and not visited[nx][ny]
+                            ):
+                                visited[nx][ny] = True
+                                stack.append((nx, ny))
+
+        return islands
+
+    def calculate_max_tile_distance(self, board: List[List[int]]) -> int:
+        """计算最大块距离四个角的最小曼哈顿距离"""
+        max_tile = self.get_max_tile(board)
+        positions = [
+            (i, j)
+            for i in range(BOARD_SIZE)
+            for j in range(BOARD_SIZE)
+            if board[i][j] == max_tile
+        ]
+        if not positions:
+            return 0
+
+        corners = [(0, 0), (0, BOARD_SIZE - 1), (BOARD_SIZE - 1, 0), (BOARD_SIZE - 1, BOARD_SIZE - 1)]
+        min_distance = BOARD_SIZE * 2
+        for pos in positions:
+            for corner in corners:
+                distance = abs(pos[0] - corner[0]) + abs(pos[1] - corner[1])
+                if distance < min_distance:
+                    min_distance = distance
+
+        return min_distance
