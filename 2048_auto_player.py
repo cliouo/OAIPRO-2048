@@ -19,6 +19,7 @@ class Game2048AutoPlayer:
         self.current_score = 0
         self.game_over = False
         self.victory = False
+        self.awaiting_response = False
         
         # 设置日志
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -400,7 +401,7 @@ class Game2048AutoPlayer:
     async def make_ai_move(self):
         """使用AI计算并执行移动"""
         try:
-            if not self.current_board:
+            if not self.current_board or self.awaiting_response:
                 return
             
             # 使用AI计算最佳移动
@@ -408,15 +409,17 @@ class Game2048AutoPlayer:
             
             if best_move:
                 self.logger.info(f"AI选择移动方向: {best_move}")
-                
-                # 通过WebSocket发送移动指令
+
+                success = False
                 if self.websocket_handler and self.websocket_handler.get_connection_status():
-                    await self.websocket_handler.send_move(best_move)
+                    success = await self.websocket_handler.send_move(best_move)
                 else:
-                    # 备用方案：模拟键盘按键
                     self.simulate_keyboard_move(best_move)
-                
-                # 添加延迟
+                    success = True
+
+                if success:
+                    self.awaiting_response = True
+
                 await asyncio.sleep(MOVE_DELAY)
                 
         except Exception as e:
@@ -447,16 +450,20 @@ class Game2048AutoPlayer:
         except Exception as e:
             self.logger.error(f"模拟键盘按键失败: {e}")
     
-    def on_game_state_received(self, game_data: Dict[str, Any]):
-        """处理接收到的游戏状态"""
+    def on_game_state_received(self, game_data: Optional[Dict[str, Any]]):
+        """处理接收到的游戏状态或错误"""
         try:
-            self.current_board = game_data.get("board", [])
-            self.current_score = game_data.get("score", 0)
-            self.game_over = game_data.get("game_over", False)
-            self.victory = game_data.get("victory", False)
+            if game_data:
+                self.current_board = game_data.get("board", [])
+                self.current_score = game_data.get("score", 0)
+                self.game_over = game_data.get("game_over", False)
+                self.victory = game_data.get("victory", False)
 
             # 更新页面状态显示
             self.update_page_status()
+
+            # 表示已收到上一次移动的响应
+            self.awaiting_response = False
 
             # 检查游戏是否结束
             if self.game_over or self.victory:

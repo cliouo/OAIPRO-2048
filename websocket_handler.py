@@ -156,13 +156,16 @@ class WebSocketHandler:
         if message_type == "game_state":
             game_data = data.get("data", {})
             self.logger.info(f"收到游戏状态: 分数={game_data.get('score', 0)}")
-            
+
             # 调用回调函数处理游戏状态
             if self.on_game_state:
                 self.on_game_state(game_data)
-                
+
         elif message_type == "error":
             self.logger.error(f"服务器错误: {data.get('message', '未知错误')}")
+            if self.on_game_state:
+                # 通知上层移动无效，以便继续下一步
+                self.on_game_state(None)
             
         else:
             self.logger.info(f"收到未知消息类型: {message_type}")
