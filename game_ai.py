@@ -148,6 +148,7 @@ class Game2048AI:
         positional_score = self.calculate_positional_score(board)
         merge_potential = self.calculate_merge_potential(board)
         island_penalty = self.calculate_island_penalty(board)
+        max_tile_distance = self.calculate_max_tile_distance(board)
         
         # 最大块在角落的奖励
         corner_bonus = 0
@@ -171,7 +172,8 @@ class Game2048AI:
             corner_bonus -  # 添加角落奖励
             trapped_penalty +  # 减去被困惩罚
             empty_line_bonus -  # 添加空行/空列奖励
-            ISLAND_PENALTY_WEIGHT * island_penalty  # 孤岛惩罚
+            ISLAND_PENALTY_WEIGHT * island_penalty -  # 孤岛惩罚
+            MAX_TILE_DISTANCE_WEIGHT * max_tile_distance  # 最大块距离角落
         )
 
         return score
@@ -430,3 +432,25 @@ class Game2048AI:
                                 stack.append((nx, ny))
 
         return islands
+
+    def calculate_max_tile_distance(self, board: List[List[int]]) -> int:
+        """计算最大块距离四个角的最小曼哈顿距离"""
+        max_tile = self.get_max_tile(board)
+        positions = [
+            (i, j)
+            for i in range(BOARD_SIZE)
+            for j in range(BOARD_SIZE)
+            if board[i][j] == max_tile
+        ]
+        if not positions:
+            return 0
+
+        corners = [(0, 0), (0, BOARD_SIZE - 1), (BOARD_SIZE - 1, 0), (BOARD_SIZE - 1, BOARD_SIZE - 1)]
+        min_distance = BOARD_SIZE * 2
+        for pos in positions:
+            for corner in corners:
+                distance = abs(pos[0] - corner[0]) + abs(pos[1] - corner[1])
+                if distance < min_distance:
+                    min_distance = distance
+
+        return min_distance
