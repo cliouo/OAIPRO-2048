@@ -140,7 +140,19 @@ class Game2048AI:
             return expected_score
     
     def evaluate_board(self, board: List[List[int]]) -> float:
-        """评估棋盘状态 - 优化版本"""
+        """评估棋盘状态 - 动态角落策略"""
+        best_score = -float("inf")
+        rotated = copy.deepcopy(board)
+        for i in range(4):
+            score = self._evaluate_board_single(rotated)
+            if score > best_score:
+                best_score = score
+            # 逆时针旋转棋盘，为下一次评估做准备
+            rotated = self.rotate_board(rotated)
+        return best_score
+
+    def _evaluate_board_single(self, board: List[List[int]]) -> float:
+        """评估棋盘状态 - 单一方向"""
         empty_cells = len(self.get_empty_cells(board))
         smoothness = self.calculate_smoothness(board)
         monotonicity = self.calculate_monotonicity(board)
@@ -295,6 +307,10 @@ class Game2048AI:
                 if board[i][j] == 0:
                     empty_cells.append((i, j))
         return empty_cells
+
+    def rotate_board(self, board: List[List[int]]) -> List[List[int]]:
+        """逆时针旋转棋盘90度"""
+        return [list(row) for row in zip(*board)][::-1]
     
     def move_board(self, board: List[List[int]], direction: str) -> List[List[int]]:
         """模拟移动棋盘"""
